@@ -1,0 +1,219 @@
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as streamlit
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+
+# Configuration de la page Web (Style OCP)
+st.set_page_config(
+    page_title="OCP Group - IA Prédictive HSE",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Style CSS personnalisé pour l'identité visuelle OCP (Vert/Gris haut de gamme)
+st.markdown(
+    """
+    <style>
+    .main-title { font-size:32px; font-weight:bold; color:#1e3d59; margin-bottom:5px; }
+    .sub-title { font-size:16px; color:#5e6e7a; margin-bottom:25px; }
+    .metric-box { padding: 15px; border-radius: 8px; background-color: #f8f9fa; border: 1px solid #e9ecef; }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ==========================================
+# 1. ENTRAÎNEMENT DU MOTEUR IA (EN CACHE)
+# ==========================================
+@st.cache_resource
+def initialiser_moteur_ia():
+    np.random.seed(42)
+    n_lignes = 2500
+
+    # Simulation des variables métiers
+    df = pd.DataFrame(
+        {
+            "Temp_Ambiante_C": np.random.uniform(15, 48, n_lignes),
+            "Pluviometrie_mm_h": np.random.uniform(0, 55, n_lignes),
+            "Vent_km_h": np.random.uniform(5, 85, n_lignes),
+            "Seisme_Mag": np.random.uniform(0, 3.2, n_lignes),
+            "Stabilite_Pente_Index": np.random.uniform(0.52, 1.0, n_lignes),
+            "Temp_Rotation_C": np.random.uniform(40, 105, n_lignes),
+            "Vibration_mm_s": np.random.uniform(0.5, 7.8, n_lignes),
+        }
+    )
+
+    # Logique d'étiquetage
+    labels = []
+    for _, row in df.iterrows():
+        if row["Temp_Rotation_C"] > 94.0 or row["Vibration_mm_s"] > 6.2:
+            labels.append(1)  # Défaillance Machine
+        elif (
+            row["Pluviometrie_mm_h"] > 42.0
+            or row["Stabilite_Pente_Index"] < 0.62
+            or row["Vent_km_h"] > 75.0
+        ):
+            labels.append(2)  # Risque Environnemental
+        else:
+            labels.append(0)  # Normal
+
+    df["Risque_HSE_Cible"] = labels
+    X = df.drop(columns=["Risque_HSE_Cible"])
+    y = df["Risque_HSE_Cible"]
+
+    model = XGBClassifier(
+        n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42
+    )
+    model.fit(X, y)
+    return model, X
+
+
+modele_ia, features_reference = initialiser_moteur_ia()
+
+# ==========================================
+# 2. EN-TÊTE DU SITE WEB
+# ==========================================
+st.markdown(
+    "<div class='main-title'>OCP GROUP — PLATEFORME PILOTE IA PREDICTIVE HSE</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<div class='sub-title'>Intégration temps réel des données IoT industrielles, géospatiales et climatiques pour l'anticipation des risques.</div>",
+    unsafe_allow_html=True,
+)
+st.write("---")
+
+# ==========================================
+# 3. PANNEAU LATÉRAL (Inputs Capteurs Live)
+# ==========================================
+st.sidebar.image(
+    "https://upload.wikimedia.org/wikipedia/commons/1/1a/OCP_Group_Logo.svg",
+    width=140,
+)
+st.sidebar.markdown("### 📡 Flux de Capteurs en Temps Réel")
+st.sidebar.write("Modifiez les valeurs pour simuler une situation terrain :")
+
+st.sidebar.markdown("**🔥 Paramètres Machine (Concasseur / Calcination)**")
+temp_rotation = st.sidebar.slider(
+    "Température de Rotation (°C)", 40.0, 110.0, 65.0, step=0.5
+)
+vibration_mm_s = st.sidebar.slider(
+    "Niveau de Vibration (mm/s)", 0.5, 9.0, 2.2, step=0.1
+)
+
+st.sidebar.markdown("**⛈️ Données Environnementales & Climatiques**")
+pluviometrie = st.sidebar.slider("Pluviométrie (mm/h)", 0.0, 60.0, 5.0, step=0.5)
+stabilite_pente = st.sidebar.slider(
+    "Index de Stabilité de Pente (Inclinomètre)", 0.50, 1.00, 0.92, step=0.01
+)
+vent_kmh = st.sidebar.slider(
+    "Vitesse du Vent (km/h)", 5.0, 100.0, 25.0, step=1.0
+)
+temp_ambiante = st.sidebar.slider("Température Ambiante (°C)", 15.0, 50.0, 32.0)
+seisme_mag = st.sidebar.slider(
+    "Activité Sismique / Tirs (Magnitude local)", 0.0, 4.0, 0.2
+)
+
+# Structuration des inputs pour l'IA
+donnees_capteurs = {
+    "Temp_Ambiante_C": temp_ambiante,
+    "Pluviometrie_mm_h": pluviometrie,
+    "Vent_km_h": vent_kmh,
+    "Seisme_Mag": seisme_mag,
+    "Stabilite_Pente_Index": stabilite_pente,
+    "Temp_Rotation_C": temp_rotation,
+    "Vibration_mm_s": vibration_mm_s,
+}
+
+# ==========================================
+# 4. BLOC CENTRAL : ANALYSE DU RISQUE PAR L'IA
+# ==========================================
+df_live = pd.DataFrame([donnees_capteurs])
+prediction = modele_ia.predict(df_live)[0]
+probabilites = modele_ia.predict_proba(df_live)[0]
+score_confiance = probabilites[prediction] * 100
+
+st.markdown("### 📢 Diagnostic en Temps Réel du Moteur IA")
+
+col_statut, col_action = st.columns([1, 2])
+
+with col_statut:
+    if prediction == 0:
+        st.success(
+            f"### 🟢 RAS\n**Statut : Opérations Normales**\n\nFiabilité : {score_confiance:.1f}%"
+        )
+    elif prediction == 1:
+        st.warning(
+            f"### 🟡 DÉFAILLANCE ÉQUIPEMENT\n**Anomalie Critique Machine**\n\nProbabilité : {score_confiance:.1f}%"
+        )
+    elif prediction == 2:
+        st.error(
+            f"### 🚨 ALERTE HSE CLIMATIQUE\n**Risque Environnemental Majeur**\n\nProbabilité : {score_confiance:.1f}%"
+        )
+
+with col_action:
+    st.markdown("<div class='metric-box'>", unsafe_allow_html=True)
+    st.markdown("**📋 Protocole Prescriptif Automatisé :**")
+    if prediction == 0:
+        st.info(
+            "Aucune déviation détectée. Les seuils de tolérance IoT et environnementaux sont respectés. Surveillance continue activée."
+        )
+    elif prediction == 1:
+        st.write(
+            "⚠️ **Action Immédiate :** Émission instantanée d'un ordre de travail critique sur la GMAO. Notification de l'équipe de maintenance pour inspection des roulements et alignement."
+        )
+    elif prediction == 2:
+        st.write(
+            "🚨 **Action Immédiate :** Activation automatique des sirènes de zone. Envoi de SMS d'alerte d'évacuation d'urgence à l'ensemble du personnel de la zone minière basse. Repli des engins."
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.write("")
+
+# ==========================================
+# 5. GRAPHIQUES ET ANALYSE AVANCÉE
+# ==========================================
+st.markdown("### 📊 Répartition des Probabilités et Facteurs d'Influence")
+
+col_graph1, col_graph2 = st.columns(2)
+
+with col_graph1:
+    # Graphique Plotly de la distribution des risques
+    fig_prob = px.bar(
+        x=["Normal", "Risque Équipement", "Risque Environnemental"],
+        y=probabilites * 100,
+        labels={"x": "Scénarios analysés par l'IA", "y": "Probabilité (%)"},
+        title="Analyse comparative des probabilités de risques",
+        color=["Normal", "Risque Équipement", "Risque Environnemental"],
+        color_discrete_sequence=["#2ecc71", "#f39c12", "#e74c3c"],
+    )
+    fig_prob.update_layout(showlegend=False)
+    st.plotly_chart(fig_prob, use_container_width=True)
+
+with col_graph2:
+    # Graphique de l'importance des variables
+    importances = modele_ia.feature_importances_
+    features_noms = features_reference.columns
+    df_imp = pd.DataFrame({"Variable": features_noms, "Poids": importances})
+    df_imp = df_imp.sort_values(by="Poids", ascending=True)
+
+    fig_imp = px.bar(
+        df_imp,
+        x="Poids",
+        y="Variable",
+        orientation="h",
+        title="Quels facteurs influencent le plus la décision actuelle ?",
+        color_discrete_sequence=["#1e3d59"],
+    )
+    st.plotly_chart(fig_imp, use_container_width=True)
+
+# Footer professionnel
+st.write("---")
+st.caption(
+    "🔒 Prototype Applicatif - Master Finance Durable et Ingénierie Financière (MEFA) - Cadi Ayyad Marrakech"
+)
